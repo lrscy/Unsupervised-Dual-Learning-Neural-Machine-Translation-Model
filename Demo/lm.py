@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[4]:
+# In[3]:
 
 
 # Character-Level Language Modeling
@@ -15,7 +15,7 @@ import random
 import argparse
 
 
-# In[5]:
+# In[4]:
 
 
 """Get all files name under path
@@ -71,14 +71,16 @@ def unk( contents ):
             if w not in d:
                 d[w] = 0
             d[w] += 1
-    repw = []
+    repw = {}
     for ( k, v ) in d.items():
-        if v <= 5:
-            repw.append( k )
+        if v <= 3:
+            if k not in repw:
+                repw[k] = 0
+            repw[k] += 1
     return repw
 
 
-# In[6]:
+# In[5]:
 
 
 # Build Character-Level Language Model
@@ -100,7 +102,7 @@ def ngrams( contents, n, d ):
     for content in contents:
         for i in range( n - 1, len( content ) - 1 ):
             k = ' '.join( content[i - n + 1:i + 1] )
-            if k not in d:
+            if k not in d["c"]:
                 d["c"][k] = 0
             d["c"][k] += 1
             d["t"] += 1
@@ -129,10 +131,9 @@ def LM( contents ):
     
     # Calculate unigram, bigram, and trigram
     print( "Calculating n-grams..." )
-    for content in contents:
-        ngrams( content, 1, lm["unigram"] )
-        ngrams( content, 2, lm["bigram" ] )
-        ngrams( content, 3, lm["trigram"] )
+    ngrams( contents, 1, lm["unigram"] )
+    ngrams( contents, 2, lm["bigram" ] )
+    ngrams( contents, 3, lm["trigram"] )
     return lm
 
 """Build Language Model
@@ -156,13 +157,12 @@ def buildLM( trainDataPath = "./train", encoding = "Latin-1", savePath = "./lm",
     print( "Counting for finding UNK.")
     contents = []
     for fileName in trainFiles:
-        with open( trainDataPath + "/" + fileName ) as f:
+        with open( fileName, 'r', encoding = encoding ) as f:
             content = []
             line = f.readline()
             while line:
-                content += line.split()
+                contents.append( line.split() )
                 line = f.readline()
-            contents.append( content )
     repw = unk( contents )
     if len( repw ):
         for content in contents:
@@ -170,11 +170,20 @@ def buildLM( trainDataPath = "./train", encoding = "Latin-1", savePath = "./lm",
                 if content[i] in repw:
                     content[i] = "<UNK>"
     lm = LM( contents )
+    if not os.path.isdir( savePath ):
+        os.makedirs( savePath )
     for name in ngram:
-        with open( savePath + "/" + name, "w" ) as f:
+        print( name )
+        with open( savePath + "/" + name, "w", encoding = encoding ) as f:
             f.write( str( lm[name]["t"] ) + "\n" )
             for ( k, v ) in lm[name]["c"].items():
                 f.write( k + " " + str( v ) + "\n" )
+
+
+# In[7]:
+
+
+buildLM( trainDataPath = "../../Data/train/english", encoding = "UTF-8", savePath = "./lm/english" )
 
 
 # In[ ]:
