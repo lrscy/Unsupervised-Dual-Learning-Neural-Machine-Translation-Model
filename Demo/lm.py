@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[3]:
+# In[ ]:
 
 
-# Character-Level Language Modeling
+# Word-Level Language Modeling
 # -*- coding: utf-8 -*-
 
 import os
@@ -15,7 +15,7 @@ import random
 import argparse
 
 
-# In[4]:
+# In[ ]:
 
 
 """Get all files name under path
@@ -80,15 +80,13 @@ def unk( contents ):
     return repw
 
 
-# In[5]:
+# In[ ]:
 
 
-# Build Character-Level Language Model
+# Build Word-Level Language Model
 """Generate n-gram dictionary.
 
 Generate n-gram dictionary based on fed string and n.
-
-Note: replace characters in content with "?" which represents "UNK" in character-level.
 
 Args:
     contents: a list of content used to calculate ngrams.
@@ -110,7 +108,7 @@ def ngrams( contents, n, d ):
 """Build language model
 
 Preprocess files and across all files in the directory (counted together), report the 
-unigram, bigram, and trigram character counts.
+unigram, bigram, and trigram words counts.
 
 Args:
     content: a list contains content needed to be processed.
@@ -118,9 +116,9 @@ Args:
 Returns:
     lm: a dictionary of language model when savePath equals empty string. Its structure is:
     
-    {"unigram": {"c": unigram, "t": total unigram characters},
-     "bigram" : {"c": bigram,  "t": total bigram  characters},
-     "trigram": {"c": trigram, "t": total trigram characters}}.
+    {"unigram": {"c": unigram, "t": total unigram words},
+     "bigram" : {"c": bigram,  "t": total bigram  words},
+     "trigram": {"c": trigram, "t": total trigram words}}.
 """
 def LM( contents ):
     print( "Building language modeling..." )
@@ -139,7 +137,7 @@ def LM( contents ):
 """Build Language Model
 
 Across all files in the directory (counted together), report the unigram, bigram, and trigram
-character counts and save them in seperate files.
+words counts and save them in seperate files.
 
 Args:
     trainDataPath: train data path.
@@ -180,7 +178,7 @@ def buildLM( trainDataPath = "./train", encoding = "Latin-1", savePath = "./lm",
                 f.write( k + " " + str( v ) + "\n" )
 
 
-# In[7]:
+# In[ ]:
 
 
 buildLM( trainDataPath = "../../Data/train/english", encoding = "UTF-8", savePath = "./lm/english" )
@@ -189,48 +187,42 @@ buildLM( trainDataPath = "../../Data/train/english", encoding = "UTF-8", savePat
 # In[ ]:
 
 
-# Apply Linear Interplotation smoothing function on language model.
-"""Linear Interplotation Smoothing
+# Apply Add-Lambda smoothing function on language model.
+"""Load language model
 
-P(w_{n}|w_{n-2}w_{n-1}) = lambda3 * P(w_{n}|w_{n-2}w_{n-1}) +
-                          lambda2 * P(w_{n}|w_{n-1}) +
-                          lambda1 * P(w_{n})
-    where lambda1 + lambda2 + lambda3 = 1.
+Load language model from folder "lm" and save them into dictionary "lm".
 
 Args:
-    lm: a dictionary contains language model. Its structure is:
-    
-    {"unigram": {"c": unigram, "t": total unigram characters},
-     "bigram" : {"c": bigram,  "t": total bigram  characters},
-     "trigram": {"c": trigram, "t": total trigram characters}}.
-
-    lambdas: a dictionary of lambda for interplotation or addLambda. Its structure is:
-    
-    {1: lambdaForUnigram, 2: lambdaForBigram, 3: lambdaForTrigram}.
-
-    s: string wating for calculating unigram, bigram, and trigram.
+    loadPath: language model load path.
+    encoding: language model files' encoding
 
 Returns:
-    p: a double number represents the final probability of P(w_{n}|w_{n-2}w_{n-1}).
+    lm: a dictionary of language model. Its structure is:
+    
+    {"unigram": {"c": unigram, "t": total unigram words},
+     "bigram" : {"c": bigram,  "t": total bigram  words},
+     "trigram": {"c": trigram, "t": total trigram words}}.
 """
-def interplotation( lm, lambdas, s ):
-    s1 = s[2:]
-    s2 = s[1:]
-    s3 = s[0:]
-    if s1 not in lm["unigram"]["c"]:
-        p1 = lm["unigram"]["c"]["?"] / lm["unigram"]["t"]
-    else:
-        p1 = lm["unigram"]["c"][s1] / lm["unigram"]["t"]
-    if s2 not in lm["bigram"]["c"] or s1 not in lm["unigram"]["c"]:
-        p2 = 0
-    else:
-        p2 = lm["bigram" ]["c"][s2] / lm["unigram" ]["c"][s1]
-    if s3 not in lm["trigram"]["c"] or s2 not in lm["bigram"]["c"]:
-        p3 = 0
-    else:
-        p3 = lm["trigram"]["c"][s3] / lm["bigram"]["c"][s2]
-    p = lambdas[1] * p1 + lambdas[2] * p2 + lambdas[3] * p3
-    return p
+def loadLM( loadPath = "./lm", encoding = "utf-8" ):
+    lm = {}
+    ngram = ["unigram", "bigram", "trigram"]
+    # load unigram, bigram, and trigram
+    for name in ngram:
+        with open( loadPath + "/" + name, "r", encoding = encoding ) as f:
+            ngram = {}
+            total = 0
+            line = f.readline()
+            while line:
+                kv = line.split( ' ' )
+                if len( kv ) > 1:
+                    k = ' '.join( kv[:-1] )
+                    v = kv[-1]
+                    ngram[k] = int( v )
+                else:
+                    total = int( kv[0] )
+                line = f.readline()
+            lm[name] = {"c": ngram, "t": total}
+    return lm
 
 """Calculate perplexity
 
@@ -241,12 +233,12 @@ Note: Since here is no <SOS> and <EOS> in language model, n would be the length 
       the content - 2.
 
 Args:
-    content: string content.
+    content: a list of words in a sentence.
     lm: a dictionary contains language model. Its structure is:
     
-    {"unigram": {"c": unigram, "t": total unigram characters},
-     "bigram" : {"c": bigram,  "t": total bigram  characters},
-     "trigram": {"c": trigram, "t": total trigram characters}}.
+    {"unigram": {"c": unigram, "t": total unigram words},
+     "bigram" : {"c": bigram,  "t": total bigram  words},
+     "trigram": {"c": trigram, "t": total trigram words}}.
 
     **kwargs:
         func: smoothing function name on calculating P(w_i|w_{i-2}w_{i-1}), including
@@ -270,12 +262,8 @@ def perplexity( content, lm, **kwargs ):
     if( length <= 2 ):
         raise Exception( "Too short content." )
     if "func" in kwargs:
-        if kwargs["func"] == "Interplotation":
-            for i in range( length - 1 ):
-                p = interplotation( lm, kwargs["lambdas"], content[i:i + 3] )
-                log2p += math.log2( p )
-        elif kwargs["func"] == "AddLambda":
-            for i in range( length - 1 ):
+        if kwargs["func"] == "AddLambda":
+            for i in range( length - 2 ):
                 p = addLambda( lm, kwargs["lambdas"], content[i:i + 3] )
                 log2p += math.log2( p )
         else:
@@ -286,135 +274,6 @@ def perplexity( content, lm, **kwargs ):
     ppw = 2 ** log2p
     return ppw
 
-"""Grid search
-
-Using grid search and held-out data set find the best lambdas for
-linear interplotation smoothing.
-
-Args:
-    lambdas: a generator of lambdas which generate a dictionary of lambdas
-             for unigram, bigram, trigram each time. For example:
-    
-    {1:0.1, 2:0.1, 3:0.8}
-    
-    lm: a dictionary of language model. Its structure is:
-    
-    {"unigram": {"c": unigram, "t": total unigram characters},
-     "bigram" : {"c": bigram,  "t": total bigram  characters},
-     "trigram": {"c": trigram, "t": total trigram characters}}.
-    
-    heldOutFiles: files name belongs to held-out data set.
-
-Returns:
-    lambdas: the best lambdas combination.
-"""
-def gridSearch( lambdas, lm, heldOutFiles ):
-    print( "Applying grid search..." )
-    minAvg = float( "inf" )
-    for lambd in lambdas:
-        avg = 0
-        for name in heldOutFiles:
-            content = preprocess( name )
-            avg += perplexity( content, lm, func = "Interplotation", lambdas = lambd )
-        if( avg < minAvg ):
-            minAvg = avg
-            bestLambda = lambd
-    return bestLambda
-
-"""Calculate the perplexity with interplotation smoothing method
-
-Calculate the perplexity for each file in the test set using linear interpolation smoothing method.
-
-Note: Here I sperate the training data and held-out data by seperating number of files rather
-      than seperating all content after concatenating all together and then dividing them.
-      
-      There are two reasons to divide data in this way
-      1. It is hard and cumbersome to measure 80% of the content just on name list.
-      2. If loading all content into memory at the same time, it is too time consuming and
-         wastes time without obviously improvment on final language model.
-
-Args:
-    trainDataPath: train data path.
-    encoding: train data files' encoding
-    savePath: path to save language model. If it equals to empty string, the function returns
-              language model.
-    testDataPath: test data path.
-    ratio: the proportion of the real training set comparing to whole training set.
-
-Returns:
-    None.
-"""
-def interplotationPPW( trainDataPath = "./train", encoding = "Latin-1", savePath = "./save",
-                       testDataPath = "./test", ratio = 0.8 ):
-    # Get new language model
-    trainFiles, heldOutFiles = getFilesName( trainDataPath, ratio = ratio, shuffle = True )
-    content = ""
-    contents = []
-    for fileName in trainFiles:
-        content += preprocess( fileName, encoding )
-        contents.append( content )
-    repc = unk( content )
-    if len( repc ) > 2:
-        for i in range( len( contents ) ):
-            contents[i] = re.sub( repc, "?", contents[i] )
-    lm = LM( contents )
-
-    # Choose lambdas by grid search and perplexity
-    lambdas = ( {1: x / 10, 2: y / 10, 3: ( 10 - x - y ) / 10}
-                   for x in range( 1, 10, 1 ) for y in range( 1, 10 - x, 1 ) )
-    lambdas = gridSearch( lambdas, lm, heldOutFiles )
-
-    # File-PPW pair dictionary
-    dfp = {}
-    filesName, _ = getFilesName( testDataPath )
-    for fileName in filesName:
-        content = preprocess( fileName )
-        ppw = perplexity( content, lm, func = "Interplotation", lambdas = lambdas )
-        dfp[fileName] = ppw
-    fps = sorted( dfp.items(), key = lambda x: x[1], reverse = True )
-    with open( savePath + "/" + "filesPerplexity-interplotation.txt", 'w' ) as f:
-        for fp in fps:
-            f.write( fp[0].split( '/' )[-1] + ", " + str( fp[1] ) + "\n" )
-
-# Apply Add-Lambda smoothing function on language model.
-"""Load language model
-
-Load language model from folder "lm" and save them into dictionary "lm".
-
-Args:
-    loadPath: language model load path.
-    encoding: language model files' encoding
-
-Returns:
-    lm: a dictionary of language model. Its structure is:
-    
-    {"unigram": {"c": unigram, "t": total unigram characters},
-     "bigram" : {"c": bigram,  "t": total bigram  characters},
-     "trigram": {"c": trigram, "t": total trigram characters}}.
-"""
-def loadLM( loadPath = "./lm", encoding = "utf-8" ):
-    lm = {}
-    ngram = ["unigram", "bigram", "trigram"]
-    n = 0
-    # load unigram, bigram, and trigram
-    for name in ngram:
-        n += 1
-        with open( loadPath + "/" + name, "r", encoding = encoding ) as f:
-            ngram = {}
-            total = 0
-            line = f.readline()
-            while line:
-                kv = line.split( ' ' )
-                if len( kv ) > 1:
-                    kv[0] = line[:n]
-                    kv[1] = line[n + 1:]
-                    ngram[kv[0]] = int( kv[1] )
-                else:
-                    total = int( kv[0] )
-                line = f.readline()
-            lm[name] = {"c": ngram, "t": total}
-    return lm
-
 """Add lambda smoothing
 
 P(w_{n}|w_{n-1}w_{n-2}) = ( c(w_{n-1}w_{n-2}, w_{n}) + lambda ) /
@@ -423,29 +282,31 @@ P(w_{n}|w_{n-1}w_{n-2}) = ( c(w_{n-1}w_{n-2}, w_{n}) + lambda ) /
 Args:
     lm: a dictionary of language model. Its structure is:
     
-    {"unigram": {"c": unigram, "t": total unigram characters},
-     "bigram" : {"c": bigram,  "t": total bigram  characters},
-     "trigram": {"c": trigram, "t": total trigram characters}}.
+    {"unigram": {"c": unigram, "t": total unigram words},
+     "bigram" : {"c": bigram,  "t": total bigram  words},
+     "trigram": {"c": trigram, "t": total trigram words}}.
     
     lambdas: a generator of lambdas which generate a dictionary of lambdas
              for unigram, bigram, trigram each time. For example:
     
     {1:0.1, 2:0.1, 3:0.8}
     
-    s: string wating for calculating unigram, bigram, and trigram.
+    s: a list of words wating for calculating unigram, bigram, and trigram.
 
 Returns:
     p: a double number represents the final probability of P(w_{n}|w_{n-2}w_{n-1}).
 """
 def addLambda( lm, lambdas, s ):
+    s = s[-1]
     if s not in lm["trigram"]["c"]:
         cnt1 = 0
     else:
         cnt1 = lm["trigram"]["c"][s]
-    if s[:2] not in lm["bigram"]["c"]:
+    s = ' '.join( s[:-1] )
+    if s not in lm["bigram"]["c"]:
         cnt2 = 0
     else:
-        cnt2 = lm["bigram"]["c"][s[:2]]
+        cnt2 = lm["bigram"]["c"][s]
     p = ( cnt1 + lambdas[3] ) / ( cnt2 + len( lm["bigram"]["c"] ) * lambdas[3] )
     return p
 
@@ -475,24 +336,28 @@ def addLambdaPPW( lmPath = "./lm", encoding = "Latin-1", savePath = "./3_3",
     dfp = {}
     filesName, _ = getFilesName( testDataPath )
     for fileName in filesName:
-        content = preprocess( fileName )
-        ppw = perplexity( content, lm, func = "AddLambda", lambdas = lambdas )
+        with open( fileName, 'r', encoding = encoding ) as f:
+            line = f.readline()
+            while line:
+                content = line.strip().split()
+                ppw = perplexity( content, lm, func = "AddLambda", lambdas = lambdas )
+                line = f.readline()
         dfp[fileName] = ppw
     fps = sorted( dfp.items(), key = lambda x: x[1], reverse = True )
     with open( savePath + "/" + "filesPerplexity-addLambda.txt", 'w' ) as f:
         for fp in fps:
             f.write( fp[0].split( '/' )[-1] + ", " + str( fp[1] ) + "\n" )
 
+
+# In[ ]:
+
+
 # Test
 def test():
-    # Build Character-Level Language Model
-    print( "Building Character-Level Language Model..." )
+    # Build Word-Level Language Model
+    print( "Building Word-Level Language Model..." )
     buildLM( trainDataPath = "./train", encoding = "Latin-1", savePath = "./lm",
              ratio = 1 )
-    # Apply Linear Interplotation smoothing function on language model
-    print( "Applying Linear Interplotation smoothing function on language model..." )
-    interplotationPPW( trainDataPath = "./train", encoding = "Latin-1",
-                       savePath = "./save", testDataPath = "./test", ratio = 0.8 )
     # Apply Add-Lambda smoothing function on language model
     print( "Applying Add-Lambda smoothing function on language model..." )
     addLambdaPPW( lmPath = "./lm", encoding = "Latin-1", savePath = "./save",
@@ -502,10 +367,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     groupsmoothing = parser.add_mutually_exclusive_group()
     groupsmoothing.add_argument( "-t", "--test", help = "Test on all funcitions", action="store_true" )
-    groupsmoothing.add_argument( "-b", "--build", help = "Build a character-level n-gram language model", 
-                                 action="store_true" )
-    groupsmoothing.add_argument( "-i", "--interplotation",
-                                 help = "Apply Linear Interplotation smoothing function on language model",
+    groupsmoothing.add_argument( "-b", "--build", help = "Build a Word-level n-gram language model", 
                                  action="store_true" )
     groupsmoothing.add_argument( "-a", "--addLambda",
                                  help = "Apply Add-Lambda smoothing function on language model",
@@ -529,8 +391,6 @@ if __name__ == "__main__":
         test()
     if args.build:
         buildLM( args.trainPath, args.encoding, args.savePath, args.ratio )
-    if args.interplotation:
-        interplotationPPW( args.trainPath, args.encoding, args.savePath, args.testPath, args.ratio )
     if args.addLambda:
         addLambdaPPW( args.lmPath, args.encoding, args.savePath, args.testPath )
 
