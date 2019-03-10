@@ -1,3 +1,4 @@
 *.pem
+*/lm/
 Demo/.ipynb_checkpoints/Framework-checkpoint.ipynb
 Demo/.ipynb_checkpoints/playground-checkpoint.ipynb
