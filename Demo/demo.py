@@ -71,8 +71,6 @@ def getTrainData( dataPath = "../Data/train/", lanList = ["chinese", "english"],
                     wordList = line.split()
                     data.append( ["<S>"] + wordList + ["</S>"] )
                     line = f.readline()
-        # suffle here is to make sure that all data are random distributed
-        random.shuffle( data )
         noOfSentences = len( data )
         print( noOfSentences, end = " " )
         noOfTrainData = int( noOfSentences * ratio )
