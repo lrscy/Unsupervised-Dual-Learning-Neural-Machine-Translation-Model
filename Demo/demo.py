@@ -177,7 +177,7 @@ def toCategory( data, wordNumDict, left, right ):
     for i in range( left, right ):
         if len( data["chinese"][i] ) <= 32:
             for j in range( len( data["chinese"][i] ) ):
-                zh[n, j] = data["english"][i][j]
+                zh[n, j] = data["chinese"][i][j]
             for j in range( len( data["english"][i] ) ):
                 en[n, j] = data["english"][i][j]
                 if j:
