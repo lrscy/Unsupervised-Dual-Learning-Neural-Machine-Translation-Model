@@ -100,12 +100,12 @@ Returns:
     wordNumDict: a dictionary which can convert words to index in each language.
                  Its structure is:
                  
-                 {language A: {word A: index, word B: ..., ...}, language B: ..., ...}.
+                 {language A: {word A: index A, word B: ..., ...}, language B: ..., ...}.
     
     numWordDict: a dictionary which can convert index to word in each language.
                  Its structure is:
                  
-                 {language A: {word A: index, word B: ..., ...}, language B: ..., ...}.
+                 {language A: {index A: word A, index B: ..., ...}, language B: ..., ...}.
 """
 def generateDict( data, threshold = 0 ):
     wordNumDict = {}
