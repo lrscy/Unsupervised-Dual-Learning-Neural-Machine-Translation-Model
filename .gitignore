@@ -1,3 +1,5 @@
 *.pem
 */lm/
 Demo/.ipynb_checkpoints/*
+*/Data/
+*/Model/

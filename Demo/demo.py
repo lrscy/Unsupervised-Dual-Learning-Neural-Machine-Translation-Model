@@ -39,9 +39,6 @@ Args:
               Default value is ["Chinese", "English"].
     encoding: encoding of each file in train directory.
     ratio: propotion of train data, others will be treat as dev data. Default value is 0.98.
-    sort: boolean value. If shuffle equals True, all data will be sorted according to their
-          length from short to long. Otherwise, train sentences will be shuffled at the end.
-          Default value is True.
 
 Returns:
     trainData: a dictionary of train data sentences of each language. Its structure is:
@@ -52,15 +49,15 @@ Returns:
     
                {language A: [[word1, word2, ...], [...], ...], language B: ...}.
 """
-def getTrainData( dataPath = "../Data/train/", lanList = ["chinese", "english"],
-                  encoding = "UTF-8", ratio = 0.98, sort = True ):
+def getTrainData( dataPath = "../../Data/train/", lanList = ["chinese", "english"],
+                  encoding = "UTF-8", ratio = 0.98 ):
     trainData = {}
     devData   = {}
     data = {}
     for lan in lanList:
         if lan not in data:
             data[lan] = []
-        print( "Reading " + lan + "files..." )
+        print( "Reading " + lan + " files..." )
         files = os.listdir( dataPath + lan + "/" )
         for file in files:
             with open( dataPath + lan + "/" + file, encoding = encoding ) as f:
@@ -77,14 +74,11 @@ def getTrainData( dataPath = "../Data/train/", lanList = ["chinese", "english"],
             trainData[lan] = []
         if lan not in devData:
             devData[lan] = []
-        data[lan] = np.array( data[lan] )[arr].toList()
+        data[lan] = np.array( data[lan] )[arr].tolist()
         noOfTrainData = int( noOfSentences * ratio )
         devData[lan]   = data[lan][noOfTrainData:]
         trainData[lan] = data[lan][:noOfTrainData]
-        if sort == True:
-            trainData[lan].sort( key = lambda x: len( x ) )
-            devData[lan].sort( key = lambda x: len( x ) )
-        print( len( trainData[lan] ), len( devData[lan] ) )
+        print( trainData[lan][:5] )
     return trainData, devData
 
 """ Generate dictionary and preprocess setences for each language
@@ -145,6 +139,26 @@ def generateDict( data, threshold = 0 ):
                     numWordDict[lan][number] = word
                 sentence[i] = wordNumDict[lan][word]
     return wordNumDict, numWordDict
+
+"""Sort dictionary by length of original language
+
+Args:
+    data: a dictionary contains sentences of each language.  Its structure is:
+    
+          {language A: [[word1, word2, ...], [...], ...], language B: ...}.
+    
+    lan: a list of language. The first one is the original language, the second
+         one is the target language. For example:
+
+         [language A, language B].
+
+Returns:
+    None.
+"""
+def sortByOriLan( data, lan = ["chinese", "english"] ):
+    tmp = list( zip( data[lan[0]], data[lan[1]] ) )
+    tmp.sort( key = lambda x: len( x[0] ) )
+    data[lan[0]], data[lan[1]] = zip( *tmp )
 
 """Number to One-hot
 
@@ -245,8 +259,9 @@ def simpleSeq2Seq( output_vocab_size, input_vocab_size, hidden_dim = 256,
     model.compile( optimizer = 'adam', loss = "categorical_crossentropy" )
     return model
 
-trainData, devData = getTrainData( "../Data/train/" )
+trainData, devData = getTrainData( "../../Data/train/" )
 wordNumDict, numWordDict = generateDict( trainData, threshold = 5 )
+sortByOriLan( trainData, ["chinese", "english"] )
 ivs = len( wordNumDict["chinese"] )
 ovs = len( wordNumDict["english"] )
 print( ivs, ovs )
@@ -263,9 +278,9 @@ batch_size = 64
 losses = []
 n = 0
 total = len( trainData["chinese"] )
-length = len( wordNumDict )
+length = len( wordNumDict["english"] )
 for i in range( 0, total + batch_size, batch_size ):
-    status, newTrainData, td = toCategory( trainData, length, i, min( i + batch_size, total ) )
+    status, newTrainData, td = toCategory( trainData, ["chinese", "english"], length, i, min( i + batch_size, total ) )
     if status == False:
         continue
     loss = model.train_on_batch( [newTrainData["chinese"], newTrainData["english"]], td )
@@ -274,4 +289,4 @@ for i in range( 0, total + batch_size, batch_size ):
     if n and n % 3000 == 0:
         model.save_weights("Models/model_weights_" + str( n ) + ".h5" ) 
     losses.append( loss )
-model.save_weights("Models/model_weights_final" + str( n ) + ".h5" )
+model.save("Models/model_final.h5" )
