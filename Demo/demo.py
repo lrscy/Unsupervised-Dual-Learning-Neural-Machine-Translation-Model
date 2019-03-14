@@ -31,7 +31,7 @@ KTF.set_session( tf.Session( config = tf.ConfigProto( device_count = {'gpu':0} )
 
 """ Get train data from path
 
-Read train data from files for each language and save to a dictionary.
+Read paralelled train data from files for each language and save to a dictionary.
 
 Args:
     dataPath: file path of train data. Default value is "../../Data/train/".
@@ -56,26 +56,31 @@ def getTrainData( dataPath = "../Data/train/", lanList = ["chinese", "english"],
                   encoding = "UTF-8", ratio = 0.98, sort = True ):
     trainData = {}
     devData   = {}
+    data = {}
     for lan in lanList:
-        print( lan, end = " " )
-        if lan not in trainData:
-            trainData[lan] = []
-        if lan not in devData:
-            devData[lan] = []
+        if lan not in data:
+            data[lan] = []
+        print( "Reading " + lan + "files..." )
         files = os.listdir( dataPath + lan + "/" )
-        data = []
         for file in files:
             with open( dataPath + lan + "/" + file, encoding = encoding ) as f:
                 line = f.readline()
                 while line:
                     wordList = line.split()
-                    data.append( ["<S>"] + wordList + ["</S>"] )
+                    data[lan].append( ["<S>"] + wordList + ["</S>"] )
                     line = f.readline()
-        noOfSentences = len( data )
-        print( noOfSentences, end = " " )
+    noOfSentences = len( data[lanList[0]] )
+    arr = [i for i in range( noOfSentences )]
+    random.shuffle( arr )
+    for lan in lanList:
+        if lan not in trainData:
+            trainData[lan] = []
+        if lan not in devData:
+            devData[lan] = []
+        data[lan] = np.array( data[lan] )[arr].toList()
         noOfTrainData = int( noOfSentences * ratio )
-        devData[lan]   = data[noOfTrainData:]
-        trainData[lan] = data[:noOfTrainData]
+        devData[lan]   = data[lan][noOfTrainData:]
+        trainData[lan] = data[lan][:noOfTrainData]
         if sort == True:
             trainData[lan].sort( key = lambda x: len( x ) )
             devData[lan].sort( key = lambda x: len( x ) )
@@ -86,6 +91,8 @@ def getTrainData( dataPath = "../Data/train/", lanList = ["chinese", "english"],
 
 Generate dictionary for each language and convert word to corresponding index.
 Here we set two dictionaries to speed up the whole program.
+
+Moreover, the function will replace word in sentences to index automatically.
 
 Args:
     data: a dictionary contains sentences of each language.  Its structure is:
@@ -121,8 +128,7 @@ def generateDict( data, threshold = 0 ):
         
         # Count word frequency
         for sentence in sentences:
-            for i in range( len( sentence ) ):
-                word = sentence[i]
+            for word in sentence:
                 if word not in wordCount:
                     wordCount[word] = 0
                 wordCount[word] += 1
@@ -149,45 +155,51 @@ Args:
     
           {language A: [[word1, word2, ...], [...], ...], language B: ...}.
     
-    wordNumDict: a dictionary which can convert words to index in each language.
-                 Its structure is:
-                 
-                 {language A: {word A: index, word B: ..., ...}, language B: ..., ...}.
+    lan: a list of language. The first one is the original language, the second
+         one is the target language. For example:
+
+         [language A, language B].
+
+    dictLength: dictionary length of language B.
+    left: start index of current batch.
+    right: end index of current batch.
 
 Returns:
-    ndata: 
-    td:
+    status: boolean value. True represents successfully extract batch data. False
+            represents extract nothing from original data.
+    ndata: data like dictionary.
+    lan1d: 3-D data contains one-hot format label data.
 """
-def toCategory( data, wordNumDict, left, right ):
+def toCategory( data, lan, dictLength, left, right ):
 #     n = right - left
     maxlch = 0
     maxlen = 0
     n = 0
     for i in range( left, right ):
-        if len( data["chinese"][i] ) <= 32:
+        if len( data[lan[0]][i] ) <= 32:
             n += 1
-            maxlch = np.max( [maxlch, len( data["chinese"][i] )] )
-            maxlen = np.max( [maxlen, len( data["english"][i] )] )
+            maxlch = max( maxlch, len( data[lan[0]][i] ) )
+            maxlen = max( maxlen, len( data[lan[1]][i] ) )
     if n == 0:
         return False, [], []
-    zh = np.zeros( ( n, maxlch ) )
-    en = np.zeros( ( n, maxlen ) )
-    td = np.zeros( ( n, maxlen, len( wordNumDict["english"] ) ) )
+    lan0 = np.zeros( ( n, maxlch ) )
+    lan1 = np.zeros( ( n, maxlen ) )
+    lan1d = np.zeros( ( n, maxlen, dictLength ) )
     n = 0
     for i in range( left, right ):
-        if len( data["chinese"][i] ) <= 32:
-            for j in range( len( data["chinese"][i] ) ):
-                zh[n, j] = data["chinese"][i][j]
-            for j in range( len( data["english"][i] ) ):
-                en[n, j] = data["english"][i][j]
+        if len( data[lan[0]][i] ) <= 32:
+            for j in range( len( data[lan[0]][i] ) ):
+                lan0[n, j] = data[lan[0]][i][j]
+            for j in range( len( data[lan[1]][i] ) ):
+                lan1[n, j] = data[lan[1]][i][j]
                 if j:
-                    w = data["english"][i][j]
-                    td[n, j - 1, w] = 1
+                    w = data[lan[1]][i][j]
+                    lan1d[n, j - 1, w] = 1
             n += 1
     ndata = {}
-    ndata["chinese"] = zh
-    ndata["english"] = en
-    return True, ndata, td
+    ndata[lan[0]] = lan0
+    ndata[lan[1]] = lan1
+    return True, ndata, lan1d
 
 """ Simple Seqence to Sequence Implementation
 
@@ -251,8 +263,9 @@ batch_size = 64
 losses = []
 n = 0
 total = len( trainData["chinese"] )
+length = len( wordNumDict )
 for i in range( 0, total + batch_size, batch_size ):
-    status, newTrainData, td = toCategory( trainData, wordNumDict, i, min( i + batch_size, total ) )
+    status, newTrainData, td = toCategory( trainData, length, i, min( i + batch_size, total ) )
     if status == False:
         continue
     loss = model.train_on_batch( [newTrainData["chinese"], newTrainData["english"]], td )
