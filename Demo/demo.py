@@ -20,6 +20,7 @@ import math
 import multiprocessing
 import h5py
 import tqdm
+import json
 import numpy as np
 import tensorflow as tf
 import keras as K
@@ -142,6 +143,23 @@ def generateDict( data, threshold = 0 ):
                 sentence[i] = wordNumDict[lan][word]
     return wordNumDict, numWordDict
 
+"""Save dictionary to file
+
+Args:
+    dt: the dictionary to save.
+    fileName: the name of file to save.
+    path: the path of file to save.
+
+Returns:
+    None.
+"""
+def saveDict( dt, fileName, path ):
+    print( "Saving to " + path + fileName + "..." )
+    fileName = path + fileName
+    with open( fileName, "w" ) as f:
+        jsn = json.dumps( dt )
+        f.write( jsn )
+
 """Sort dictionary by length of original language
 
 Args:
@@ -158,6 +176,7 @@ Returns:
     None.
 """
 def sortByOriLan( data, lan = ["chinese", "english"] ):
+    print( "Sorting..." )
     tmp = list( zip( data[lan[0]], data[lan[1]] ) )
     tmp.sort( key = lambda x: len( x[0] ) )
     data[lan[0]], data[lan[1]] = zip( *tmp )
@@ -262,6 +281,8 @@ def simpleSeq2Seq( output_vocab_size, input_vocab_size, hidden_dim = 128,
 
 trainData, devData = getTrainData( "../../Data/train/" )
 wordNumDict, numWordDict = generateDict( trainData, threshold = 5 )
+saveDict( wordNumDict, "wordNumDict", "Dicts" )
+saveDict( numWordDict, "numWordDict", "Dicts" )
 sortByOriLan( trainData, ["chinese", "english"] )
 ivs = len( wordNumDict["chinese"] )
 ovs = len( wordNumDict["english"] )
@@ -294,25 +315,27 @@ for i in range( 0, total + batch_size, batch_size ):
     params.append( [tdata, ["chinese", "english"], length] )
 print( "MAP" )
 rets = []
-for ret in tpmd.tpmd( pool.imap_unordered( toCategoryWrap, params ) ):
+for ret in tqdm.tqdm( pool.imap_unordered( toCategoryWrap, params ) ):
     rets.append( ret )
 #rets = pool.map( toCategoryWrap, params )
 pool.close()
 pool.join()
 
+n = 0
 print( "Training..." )
-for ret in range( len( rets ) ):
-#    status, newTrainData, td = toCategory( trainData, ["chinese", "english"], length, i, min( i + batch_size, total ) )
-    label = K.utils.to_categorical( ret[1]["english"] )
-    if ret[0] == False:
-        continue
-    loss = model.train_on_batch( [ret[1]["chinese"], ret[1]["english"]], label )
-    n += 1
-    print( n, loss )
-    if n and n % 3000 == 0:
-        model.save_weights("Models/model_weights_" + str( n ) + ".h5" ) 
-    losses.append( loss )
-model.save_weights("Models/model_weights_" + str( n ) + ".h5" ) 
+for epoch in range( 2 ):
+    for ret in rets:
+    #    status, newTrainData, td = toCategory( trainData, ["chinese", "english"], length, i, min( i + batch_size, total ) )
+        if ret[0] == False:
+            continue
+        label = K.utils.to_categorical( ret[1]["english"], length )
+        loss = model.train_on_batch( [ret[1]["chinese"], ret[1]["english"]], label )
+        n += 1
+        print( n, loss )
+        if n and n % 3000 == 0:
+            model.save_weights("Models/model_weights_" + str( n ) + ".h5" ) 
+        losses.append( loss )
+    model.save_weights("Models/model_weights_" + str( n ) + ".h5" ) 
 with open( "losses", "w" ) as f:
     for loss in losses:
         f.write( str( loss ) + "\n" )

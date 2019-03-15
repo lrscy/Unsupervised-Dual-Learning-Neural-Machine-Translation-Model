@@ -3,4 +3,7 @@
 */lm/
 Demo/.ipynb_checkpoints/*
 */Data/
-*/Model/
+*/Models/
+*/Dicts/
+*/losses
+*/err
