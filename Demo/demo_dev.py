@@ -16,7 +16,9 @@ TODO:
 import os
 import sys
 import random
+import threading
 import math
+import queue
 import multiprocessing
 import h5py
 import tqdm
@@ -114,6 +116,7 @@ def generateDict( data, threshold = 0 ):
     wordNumDict = {}
     numWordDict = {}
     for lan, sentences in data.items():
+        print( "Generating " + lan + " dictionary..." )
         wordCount = {}
         if lan not in wordNumDict:
             # Add special word to dictionary
@@ -158,6 +161,7 @@ Returns:
     None.
 """
 def sortByOriLan( data, lan = ["chinese", "english"] ):
+    print( "Sorting data..." )
     tmp = list( zip( data[lan[0]], data[lan[1]] ) )
     tmp.sort( key = lambda x: len( x[0] ) )
     data[lan[0]], data[lan[1]] = zip( *tmp )
@@ -176,15 +180,12 @@ Args:
 
          [language A, language B].
 
-    dictLength: dictionary length of language B.
-
 Returns:
     status: boolean value. True represents successfully extract batch data. False
             represents extract nothing from original data.
     ndata: data like dictionary.
-    lan1d: 3-D data contains one-hot format label data.
 """
-def toCategory( data, lan, dictLength ):
+def toCategory( data, lan ):
     maxlLan0 = 0
     maxlLan1 = 0
     n = 0
@@ -197,7 +198,6 @@ def toCategory( data, lan, dictLength ):
         return False, [], []
     lan0 = np.zeros( ( n, maxlLan0 ) )
     lan1 = np.zeros( ( n, maxlLan1 ) )
-#    lan1d = np.zeros( ( n, maxlLan1, dictLength ) )
     n = 0
     for i in range( len( data[lan[0]] ) ):
         if len( data[lan[0]][i] ) <= 32:
@@ -205,13 +205,10 @@ def toCategory( data, lan, dictLength ):
                 lan0[n, j] = data[lan[0]][i][j]
             for j in range( len( data[lan[1]][i] ) ):
                 lan1[n, j] = data[lan[1]][i][j]
-#                if j:
-#                    w = data[lan[1]][i][j]
-#                    lan1d[n, j - 1, w] = 1
             n += 1
     data[lan[0]] = lan0
     data[lan[1]] = lan1
-    return True, data#, lan1d
+    return True, data
 
 def toCategoryWrap( args ):
     return toCategory( *args )
@@ -260,18 +257,19 @@ def simpleSeq2Seq( output_vocab_size, input_vocab_size, hidden_dim = 128,
     model.compile( optimizer = 'adam', loss = "categorical_crossentropy" )
     return model
 
-trainData, devData = getTrainData( "../../Data/train/" )
+trainData, devData = getTrainData( "../../Data/test/" )
 wordNumDict, numWordDict = generateDict( trainData, threshold = 5 )
 sortByOriLan( trainData, ["chinese", "english"] )
 ivs = len( wordNumDict["chinese"] )
 ovs = len( wordNumDict["english"] )
 print( ivs, ovs )
 
-trainData["chinese"] = trainData["chinese"][::-1]
-devData["chinese"] = devData["chinese"][::-1]
-trainData["english"] = trainData["english"][::-1]
-devData["english"] = devData["english"][::-1]
+#trainData["chinese"] = trainData["chinese"][::-1]
+#devData["chinese"] = devData["chinese"][::-1]
+#trainData["english"] = trainData["english"][::-1]
+#devData["english"] = devData["english"][::-1]
 
+print( "Building model..." )
 model = simpleSeq2Seq( output_vocab_size = ovs, input_vocab_size = ivs, name = "demo" )
 model.summary()
 
@@ -281,7 +279,7 @@ n = 0
 total = len( trainData["chinese"] )
 length = len( wordNumDict["english"] )
 
-print( "parallizly processing training data" )
+print( "Parallel processing training data" )
 cores = multiprocessing.cpu_count()
 pool = multiprocessing.Pool( processes = cores )
 params = []
@@ -291,28 +289,80 @@ for i in range( 0, total + batch_size, batch_size ):
     tdata["chinese"] = trainData["chinese"][i:i + batch_size]
     tdata["english"] = trainData["english"][i:i + batch_size]
     # Combine all params
-    params.append( [tdata, ["chinese", "english"], length] )
+    params.append( [tdata, ["chinese", "english"]] )
 print( "MAP" )
 rets = []
-for ret in tpmd.tpmd( pool.imap_unordered( toCategoryWrap, params ) ):
-    rets.append( ret )
-#rets = pool.map( toCategoryWrap, params )
+# for ret in tqdm.tqdm( pool.imap_unordered( toCategoryWrap, params ) ):
+#     rets.append( ret )
+rets = pool.map( toCategoryWrap, params )
 pool.close()
 pool.join()
 
+#model.load_weights( "Models/old/model_weights_18000.h5" )
+#n = 18000
+
+# Multi-thread
+que = queue.Queue( 5 )
+i = 0
+lrets = len( rets )
+
+def putToQueue():
+    global i, rets, lrets, que, length
+    print( i, lrets, length )
+    while i < lrets:
+        if rets[i][0] == False:
+            i += 1
+            continue
+        if not que.full():
+            print( "1-", i )
+            que.put( [i, K.utils.to_categorical( rets[i][1]["english"], length )] )
+            i += 1
+
+def run():
+    global i, rets, lrets, que, model, losses
+    print( i, lrets )
+    while i < lrets or not que.empty():
+        if not que.empty():
+            tmp = que.get()
+            idx = tmp[0]
+            tmp = tmp[1]
+            print( "2-", idx )
+            que.task_done()
+            if rets[idx][0] == False:
+                continue
+            ret = rets[idx]
+            inputs = [ret[1]["chinese"], ret[1]["english"]]
+            outputs = tmp
+            print( "3-", idx )
+            model.summary()
+            loss = model.train_on_batch( inputs, outputs )
+            losses.append( loss )
+            if idx and idx % 3000 == 0:
+                model.save_weights("Models/model_weights_" + str( idx ) + ".h5" ) 
+
+#inputs = [rets[1][1]["chinese"], rets[1][1]["english"]]
+#outputs = K.utils.to_categorical( rets[1][1]["english"], length )
+#loss = model.train_on_batch( inputs, outputs )
+#print( loss )
 print( "Training..." )
-for ret in range( len( rets ) ):
-#    status, newTrainData, td = toCategory( trainData, ["chinese", "english"], length, i, min( i + batch_size, total ) )
-    label = K.utils.to_categorical( ret[1]["english"] )
-    if ret[0] == False:
-        continue
-    loss = model.train_on_batch( [ret[1]["chinese"], ret[1]["english"]], label )
-    n += 1
-    print( n, loss )
-    if n and n % 3000 == 0:
-        model.save_weights("Models/model_weights_" + str( n ) + ".h5" ) 
-    losses.append( loss )
-model.save_weights("Models/model_weights_" + str( n ) + ".h5" ) 
+t1 = threading.Thread( target = putToQueue )
+t2 = threading.Thread( target = run )
+t1.start()
+t2.start()
+t1.join()
+t2.join()
+## for ret in rets:
+# #    status, newTrainData, td = toCategory( trainData, ["chinese", "english"], length, i, min( i + batch_size, total ) )
+#     if ret[0] == False:
+#         continue
+#     label = K.utils.to_categorical( ret[1]["english"], length )
+#     loss = model.train_on_batch( [ret[1]["chinese"], ret[1]["english"]], label )
+#     n += 1
+#     print( n, loss )
+#     if n and n % 3000 == 0:
+#         model.save_weights("Models/model_weights_" + str( n ) + ".h5" ) 
+#     losses.append( loss )
+model.save_weights("Models/model_weights_" + str( lrets ) + ".h5" ) 
 with open( "losses", "w" ) as f:
     for loss in losses:
         f.write( str( loss ) + "\n" )

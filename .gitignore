@@ -1,3 +1,4 @@
+*.swp
 *.pem
 */lm/
 Demo/.ipynb_checkpoints/*

@@ -2,6 +2,16 @@
 
 Unsupervised Dual Learning Neural Machine Translation Model. It's also the course project of CS6120 Natural Language Processing.
 
+# Environment
+
+- [Python]()
+- [Tensorflow]()
+- [Keras]()
+
+- [numpy]()
+- [tqdm]()
+- [multiprocessing]()
+
 # Contributors:
 | Name|Email |Github |
 | ---: | :--- | :--- |
