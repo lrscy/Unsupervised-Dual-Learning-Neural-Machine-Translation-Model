@@ -115,7 +115,6 @@ def generateDict( data, threshold = 0 ):
     wordNumDict = {}
     numWordDict = {}
     for lan, sentences in data.items():
-        wordCount = {}
         if lan not in wordNumDict:
             # Add special word to dictionary
             wordNumDict[lan] = {"<PAD>": 0, "<S>": 1, "</S>": 2, "<UNK>": 3}
@@ -124,6 +123,7 @@ def generateDict( data, threshold = 0 ):
             numWordDict[lan] = {0: "<PAD>", 1: "<S>", 2: "</S>", 3: "<UNK>"}
         
         # Count word frequency
+        wordCount = {}
         for sentence in sentences:
             for word in sentence:
                 if word not in wordCount:
