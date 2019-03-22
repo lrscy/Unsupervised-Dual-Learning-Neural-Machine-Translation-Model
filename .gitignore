@@ -1,9 +1,10 @@
 *.swp
 *.pem
-*/lm/
-Demo/.ipynb_checkpoints/*
-*/Data/
-*/Models/
-*/Dicts/
-*/losses
-*/err
+lm/
+.ipynb_checkpoints/
+*Data/
+*Models/
+Dicts/
+**/losses
+**/err
+**/_vimrc
