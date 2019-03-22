@@ -2,9 +2,9 @@
 *.pem
 lm/
 .ipynb_checkpoints/
-*Data/
-*Models/
-Dicts/
+data/
+models/
+dicts/
 **/losses
 **/err
 **/_vimrc
