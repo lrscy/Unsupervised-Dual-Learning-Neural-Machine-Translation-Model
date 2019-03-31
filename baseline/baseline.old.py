@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[ ]:
 
 
 import os
@@ -12,7 +12,6 @@ import multiprocessing
 import h5py
 import json
 import numpy as np
-import gensim
 import tensorflow as tf
 import keras as K
 import keras.backend.tensorflow_backend as KTF
@@ -21,15 +20,15 @@ from keras.callbacks import ModelCheckpoint
 from keras.layers import Input, Embedding, LSTM, Dense, Lambda
 
 
-# In[2]:
+# In[ ]:
 
 
-# K.backend.clear_session()
-# sess = tf.Session( config = tf.ConfigProto( device_count = {'gpu':0} ) )
-# KTF.set_session( sess )
+K.backend.clear_session()
+sess = tf.Session( config = tf.ConfigProto( device_count = {'gpu':0} ) )
+KTF.set_session( sess )
 
 
-# In[4]:
+# In[ ]:
 
 
 """Get data from path
@@ -89,7 +88,7 @@ def get_data( path = "../data/", language_list = ["chinese", "english"],
     return lan_data
 
 
-# In[5]:
+# In[ ]:
 
 
 """Save dictionary to file
@@ -104,13 +103,13 @@ Returns:
 """
 def save_dict( dt, file_name, path = "dicts/" ):
     print( "Saving to " + path + file_name + "..." )
-    file_name = path + file_name
+    fileName = path + file_name
     with open( file_name, "w" ) as f:
         jsn = json.dumps( dt )
         f.write( jsn )
 
 
-# In[6]:
+# In[ ]:
 
 
 """Sort dictionary by length of original language
@@ -131,7 +130,7 @@ def sort_by_ori_lan( data ):
     data[lan[0]], data[lan[1]] = zip( *tmp )
 
 
-# In[7]:
+# In[ ]:
 
 
 """Build dictionary for each language
@@ -187,133 +186,19 @@ def build_dictionary( language_data, threshold = 0 ):
     return word_to_idx_dict, idx_to_word_dict
 
 
-# In[8]:
-
-
-def convert_to_index( data, word_to_idx_dict ):
-    print( "Coverting to index..." )
-    lan_list = list( data.keys() )
-    for lan in lan_list:
-        for sentence in data[lan]:
-            for i in range( len( sentence ) ):
-                word = sentence[i]
-                if word not in word_to_idx_dict[lan]:
-                    word = "<UNK>"
-                sentence[i] = word_to_idx_dict[lan][word]
-
-
-# In[9]:
-
-
-"""
-Creates a Keras Embedding() layer and loads in pre-trained word2vec 300-dimensional vectors.
-
-Arguments:
-word_to_vec_map -- dictionary mapping words to their word2vec vector representation.
-word_to_index -- dictionary mapping from words to their indices in the vocabulary
-
-Returns:
-embedding_layer -- pretrained layer Keras instance
-"""
-def pretrained_embedding_layer(word_to_vec_map, word_to_index):
-#     w2v_dict = word_to_vec_map.vocab.keys()
-    vocab_len = len(word_to_index) + 1                  # adding 1 to fit Keras embedding (requirement)
-    emb_dim = 1
-#     emb_dim = word_to_vec_map["cucumber"].shape[0]      # define dimensionality of your GloVe word vectors (= 50)
-    
-    ### START CODE HERE ###
-    # Initialize the embedding matrix as a numpy array of zeros of shape (vocab_len, dimensions of word vectors = emb_dim)
-    emb_matrix = np.zeros( ( vocab_len, emb_dim ) )
-    
-    # Set each row "index" of the embedding matrix to be the word vector representation of the "index"th word of the vocabulary
-    for word, index in word_to_index.items():
-        emb_matrix[index, :] = index
-#         if word not in word_to_index:
-#             emb_matrix[index, :] = np.random.random( ( 1, 300 ) )
-#         else:
-#             emb_matrix[index, :] = word_to_vec_map[word]
-
-    # Define Keras embedding layer with the correct output/input sizes, make it trainable.
-    # Use Embedding(...). Make sure to set trainable=False. 
-    embedding_layer = Embedding( vocab_len, emb_dim, trainable = False, mask_zero = True, )
-    ### END CODE HERE ###
-
-    # Build the embedding layer, it is required before setting the weights of the embedding layer. Do not modify the "None".
-    embedding_layer.build((None,))
-    
-    # Set the weights of the embedding layer to the embedding matrix. Your layer is now pretrained.
-    embedding_layer.set_weights([emb_matrix])
-    
-    return embedding_layer
-
-
-# In[10]:
-
-
-def convert_to_batch( data, batch_size = 64, min_length = 3, max_length = 32 ):
-    print( "Converting to batches..." )
-    tdata = {}
-    lan_list = list( data.keys() )
-    for lan in lan_list:
-        if lan not in tdata:
-            tdata[lan] = []
-    for i in range( 0, len( data[lan_list[0]] ) + batch_size, batch_size ):
-        lan0 = data[lan_list[0]][i: i + batch_size]
-        lan1 = data[lan_list[1]][i: i + batch_size]
-        # Calculate max length of valid sentences
-        n = 0
-        max_len0, max_len1 = 0, 0
-        for j in range( len( lan0 ) ):
-            len0 = len( lan0[j] )
-            len1 = len( lan1[j] )
-            if min_length <= len0 and len0 <= max_length:
-                max_len0 = max( max_len0, len0 )
-                max_len1 = max( max_len1, len1 )
-                n += 1
-        # If there is no sentence valid, ignore the batch
-        if n == 0:
-            continue
-        # Convert to batch
-        if isinstance( data[lan_list[0]], str ):
-            dtype = np.unicode_
-        else:
-            dtype = np.int
-        np_lan0 = np.empty( ( n, max_len0 ), dtype = dtype )
-        np_lan1 = np.empty( ( n, max_len1 ), dtype = dtype )
-        if isinstance( data[lan_list[0]], str ):
-            np_lan0[:] = ""
-            np_lan1[:] = ""
-        else:
-            np_lan0[:] = 0
-            np_lan1[:] = 0
-        n = 0
-        for j in range( len( lan0 ) ):
-            len0 = len( lan0[j] )
-            if min_length <= len0 and len0 <= max_length:
-                for k in range( len( lan0[j] ) ):
-                    np_lan0[n, k] = lan0[j][k]
-                for k in range( len( lan1[j] ) ):
-                    np_lan1[n, k] = lan1[j][k]
-                n += 1
-        tdata[lan_list[0]].append( np_lan0 )
-        tdata[lan_list[1]].append( np_lan1 )
-    return tdata
-
-
-# In[11]:
+# In[ ]:
 
 
 def simple_seq2seq( input_vocab_size, output_vocab_size,
-                    encoder_embedding, decoder_embedding,
                     hidden_dim = 128, word_vec_dim = 300,
                     name = "baseline" ):
     ### Encoder-Decoder for train ###
     
     # Encoder
-#     encoder_embedding = Embedding( output_dim = word_vec_dim,
-#                                    input_dim  = input_vocab_size,
-#                                    mask_zero  = True,
-#                                    name = name + "_encoder_embedding")
+    encoder_embedding = Embedding( output_dim = word_vec_dim,
+                                   input_dim  = input_vocab_size,
+                                   mask_zero  = True,
+                                   name = name + "_encoder_embedding")
     encoder = LSTM( hidden_dim, return_state = True,
                     name = name + "_encoder_lstm" )
     encoder_input = Input( shape = ( None, ),
@@ -324,10 +209,10 @@ def simple_seq2seq( input_vocab_size, output_vocab_size,
     encoder_state       = [state_h, state_c]
     
     # Decoder
-#     decoder_embedding = Embedding( output_dim = word_vec_dim,
-#                                    input_dim = output_vocab_size,
-#                                    mask_zero = True,
-#                                    name = name + "_decoder_embedding")
+    decoder_embedding = Embedding( output_dim = word_vec_dim,
+                                   input_dim = output_vocab_size,
+                                   mask_zero = True,
+                                   name = name + "_decoder_embedding")
     decoder = LSTM( hidden_dim, return_state = True, return_sequences = True,
                     name = name + "_decoder_lstm" )
     decoder_dense = Dense( output_vocab_size, activation = "softmax",
@@ -368,7 +253,7 @@ def simple_seq2seq( input_vocab_size, output_vocab_size,
     return model, encoder_model, decoder_model
 
 
-# In[12]:
+# In[ ]:
 
 
 """Generate sentences based on given sentences
@@ -382,45 +267,101 @@ Args:
     decoder_model: decoder (generate) part of seq2se1 model.
     max_len: a interger represents the max length of generated (translated)
              sentence.
-    word_to_idx_dict: a dictionary converts word to index. Its structure is:
+    word_to_idx_dict: a dictionary of original language converts word to index.
+                      Its structure is:
                       
-                      {language A: {word A: index A, word B: ..., ...},
-                       language B: ...}.
+                      {word A: index A, word B: ..., ...}
                        
-    idx_to_word_dict: a dictionary converts index to word. Its structure is:
-                      
-                      {language A: {index A: word A, index B: ..., ...},
-                       language B: ...}.
+    idx_to_word_dict: a dictionary of target language converts index to word.
+                      Its structure is:
+
+                      {index A: word A, index B: ..., ...}.
 
 Returns:
     sentences: a list of generated (translated) sentences.
 """
-def translate_sentences(data, encoder_model, decoder_model, max_len,
-                        word_to_idx_dict, idx_to_word_dict, language_list):
+def translate_sentences(data, encoder_model, decoder_model, max_len, word_to_idx_dict, idx_to_word_dict):
     sentences = []
-    lan_list = language_list
     for sentence in data:
         init = "<S>"
         cnt = 0
         words = []
-        sentence_ = [word_to_idx_dict[lan_list[0]][x]
-                     if x in word_to_idx_dict[lan_list[0]] else 3
-                     for x in sentence]
+        sentence_ = [word_to_idx_dict[x] if x in word_to_idx_dict else 3 for x in sentence]
         state = encoder_model.predict(sentence_)
         while init != "</S>" and cnt <= max_len + 1:
-            index = np.array([word_to_idx_dict[lan_list[1]][init]]).reshape( ( 1, 1 ) )
+            print( init )
+            index = np.array([word_to_idx_dict[init]]).reshape( ( 1, 1 ) )
+            print( index )
             indeces, state_h, state_c = decoder_model.predict([index] + state)
-            index = np.argmax(indeces[0, -1, :])
-            init = idx_to_word_dict[lan_list[1]][index]
+            index = np.argmax(indeces[0, -1, :]) # please check indeces.shape at first
+            init = idx_to_word_dict[index]
+            print(init)
             state = [state_h, state_c]
             words.append(init)
             cnt += 1
-        print( words[:-1] )
         sentences.append(words[:-1])
     return sentences
 
 
-# In[18]:
+# In[ ]:
+
+
+def convert_to_index( data, word_to_idx_dict ):
+    print( "Coverting to index..." )
+    lan_list = list( data.keys() )
+    for lan in lan_list:
+        for sentence in data[lan]:
+            for i in range( len( sentence ) ):
+                word = sentence[i]
+                if word not in word_to_idx_dict[lan]:
+                    word = "<UNK>"
+                sentence[i] = word_to_idx_dict[lan][word]
+
+
+# In[ ]:
+
+
+def convert_to_batch( data, batch_size = 64, max_length = 32 ):
+    print( "Converting to batches..." )
+    tdata = {}
+    lan_list = list( data.keys() )
+    for lan in lan_list:
+        if lan not in tdata:
+            tdata[lan] = []
+    for i in range( 0, len( data[lan_list[0]] ) + batch_size, batch_size ):
+        lan0 = data[lan_list[0]][i: i + batch_size]
+        lan1 = data[lan_list[1]][i: i + batch_size]
+        # Calculate max length of valid sentences
+        n = 0
+        max_len0, max_len1 = 0, 0
+        for j in range( len( lan0 ) ):
+            len0 = len( lan0[j] )
+            len1 = len( lan1[j] )
+            if len0 <= max_length:
+                max_len0 = max( max_len0, len0 )
+                max_len1 = max( max_len1, len1 )
+                n += 1
+        # If there is no sentence valid, ignore the batch
+        if n == 0:
+            continue
+        # Convert to batch
+        np_lan0 = np.zeros( ( n, max_len0 ) )
+        np_lan1 = np.zeros( ( n, max_len1 ) )
+        n = 0
+        for j in range( len( lan0 ) ):
+            len0 = len( lan0[j] )
+            if len0 <= max_length:
+                for k in range( len( lan0[j] ) ):
+                    np_lan0[n, k] = lan0[j][k]
+                for k in range( len( lan1[j] ) ):
+                    np_lan1[n, k] = lan1[j][k]
+                n += 1
+        tdata[lan_list[0]].append( np_lan0 )
+        tdata[lan_list[1]].append( np_lan1 )
+    return tdata
+
+
+# In[ ]:
 
 
 model_name = "baseline"
@@ -428,64 +369,51 @@ language_list = ["chinese", "english"] # [ori_lan, tar_lan]
 batch_size = 64
 max_length = 32
 
-data = get_data( "../data/test/" )
-word_to_idx_dict, idx_to_word_dict = build_dictionary( data, 15 )
-print( len( word_to_idx_dict[language_list[0]] ), len( word_to_idx_dict[language_list[1]] ) )
+data = get_data( "../data/train/" )
+word_to_idx_dict, idx_to_word_dict = build_dictionary( data )
 save_dict( word_to_idx_dict, "word_to_idx.json" )
 save_dict( idx_to_word_dict, "idx_to_word.json" )
 input_vocab_size = len( word_to_idx_dict[language_list[0]] )
 output_vocab_size = len( word_to_idx_dict[language_list[1]] )
 
 print( "Building Model" )
-encoder_embedding = pretrained_embedding_layer(
-                        word_to_idx_dict[language_list[0]], word_to_idx_dict[language_list[0]] )
-decoder_embedding = pretrained_embedding_layer(
-                        word_to_idx_dict[language_list[1]], word_to_idx_dict[language_list[1]] )
 model, encoder_model, decoder_model = simple_seq2seq( input_vocab_size,
                                                       output_vocab_size,
-                                                      encoder_embedding,
-                                                      decoder_embedding,
                                                       name = model_name )
 
 sort_by_ori_lan( data )
-tdata = data.copy()
-for lan in language_list:
-    print( len( data[lan] ), len( tdata[lan] ) )
-convert_to_index( tdata, word_to_idx_dict )
-# convert_to_index( data, word_to_idx_dict )
+convert_to_index( data, word_to_idx_dict )
 data = convert_to_batch( data )
-tdata = convert_to_batch( tdata )
-for lan in language_list:
-    print( len( data[lan] ) )
+print( len( data[language_list[0]] ), len( data[language_list[1]] ) )
 
-# print( "Training Model" )
-# n = 0
-# losses = []
-# for epoch in range( 1 ):
-#     for i in range( len( data[language_list[0]] ) ):
-#         label = K.utils.to_categorical( tdata[language_list[1]][i],
-#                                         output_vocab_size )
-#         loss = model.train_on_batch( [data[language_list[0]][i],
-#                                       data[language_list[1]][i]],
-#                                      label )
-#         losses.append( loss )
-#         print( n, loss )
-#         n += 1
-#         if n % 5000 == 0:
-#             model.save_weights( "models/model_weights_" + str( n ) + ".h5" )
-# with open( "losses.txt", "w" ) as f:
-#     for loss in losses:
-#         f.write( str( loss ) + "\n" )
+print( "Training Model" )
+n = 0
+losses = []
+for epoch in range( 2 ):
+    for i in range( len( data[language_list[0]] ) ):
+        label = K.utils.to_categorical( data[language_list[1]][i],
+                                        output_vocab_size )
+        loss = model.train_on_batch( [data[language_list[0]][i],
+                                      data[language_list[1]][i]],
+                                     label )
+        losses.append( loss )
+        n += 1
+        print( n )
+        if n % 3000 == 0:
+            model.save_weights( "models/model_weights_" + str( n ) + ".h5" )
+with open( "losses.txt", "w" ) as f:
+    for loss in losses:
+        f.write( str( loss ) + "\n" )
 
-# data = get_data( "../data/test/" )
-# # convert_to_index( data, word_to_idx_dict )
-# print( "Generating sentences" )
-# translated_sentences = translate_sentences( data[language_list[0]],
-#                                             encoder_model, decoder_model,
-#                                             max_length,
-#                                             word_to_idx_dict, idx_to_word_dict,
-#                                             language_list )
-# with open( "translated_sentence.txt", "w" ) as f:
-#     for sentence in translated_sentences:
-#         f.write( sentence + "\n" )
+data = get_data( "../data/test/" )
+convert_to_index( data, word_to_idx_dict )
+print( "Generating sentences" )
+translated_sentences = translate_sentences( data[language_list[0]],
+                                            encoder_model, decoder_model,
+                                            max_length,
+                                            word_to_idx_dict[language_list[1]],
+                                            idx_to_word_dict[language_list[1]] )
+with open( "translated_sentence.txt", "w" ) as f:
+    for sentence in translated_sentences:
+        f.write( sentence + "\n" )
 
