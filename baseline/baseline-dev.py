@@ -264,7 +264,7 @@ def convert_to_index( data, word_to_idx_dict ):
                           {language A: {word A: index A, word B: ..., ...},
                            language B: ...}.
     """
-    print( "Coverting to index..." )
+    print( "Converting to index..." )
     lan_list = list( data.keys() )
     for lan in lan_list:
         for sentence in data[lan]:
@@ -373,6 +373,15 @@ def convert_to_batch( data, batch_size = 64, min_length = 3, max_length = 32 ):
             tdata[language].append( np_lan[language] )
     for language in lan_list:
         data[language] = tdata[language]
+
+def convert_to_pair( data, language_list ):
+    print( "Converting to pair..." )
+    new_data = []
+    for language in language_list:
+        new_data.append( data[language] )
+    new_data = list( zip( *new_data ) )
+    new_data = list( map( list, new_data ) )
+    return new_data
 
 
 # In[ ]:
@@ -484,8 +493,6 @@ def translate_sentences( data, encoder_model, decoder_model, max_len,
         print( words[:-1] )
         f.write( ' '.join( words[:-1] ) + "\n" )
     f.close()
-#         sentences.append( words[:-1] )
-#     return sentences
 
 
 # In[ ]:
@@ -495,7 +502,7 @@ def one_hot_to_categorical( epoch, no_of_batch, category, no_of_category,
                             data, language, output_vocab_size, label_queue ):
     for ep in range( epoch ):
         for i in range( category, no_of_batch, no_of_category ):
-            label = K.utils.to_categorical( data[language][i], output_vocab_size )
+            label = K.utils.to_categorical( data[i][language], output_vocab_size )
             label_queue.put( [i, label] )
 
 
@@ -505,7 +512,7 @@ def one_hot_to_categorical( epoch, no_of_batch, category, no_of_category,
 if __name__ == "__main__":
     model_name = "baseline"
     language_list = ["chinese", "english"] # [ori_lan, tar_lan]
-    batch_size = 32
+    batch_size = 64
     max_length = 32
 
     data = get_data( "../data/train/", language_list, shuffle = False )
@@ -524,11 +531,11 @@ if __name__ == "__main__":
         print( len( data[lan] ) )
     convert_to_index( data, word_to_idx_dict )
     convert_to_batch( data, batch_size = batch_size, max_length = max_length )
-    for lan in language_list:
-        print( len( data[lan] ) )
+    data = convert_to_pair( data, language_list )
+    print( len( data ) )
 
     epoch = 3
-    no_of_batch = len( data[language_list[0]] )
+    no_of_batch = len( data )
     manager = multiprocessing.Manager()
     labels = manager.Queue( 20 )
     p = []
@@ -536,7 +543,7 @@ if __name__ == "__main__":
     for i in range( no_of_generator ):
         p_i = multiprocessing.Process( target = one_hot_to_categorical,
                                        args = ( epoch, no_of_batch, i, no_of_generator,
-                                                data, language_list[1],
+                                                data, 1,
                                                 output_vocab_size,
                                                 labels ) )
         p.append( p_i )
@@ -557,9 +564,7 @@ if __name__ == "__main__":
     while n < epoch * no_of_batch:
         tmp = labels.get_nowait()
         idx, label = tmp
-        loss = model.train_on_batch( [data[language_list[0]][idx],
-                                      data[language_list[1]][idx]],
-                                     label )
+        loss = model.train_on_batch( data[idx], label )
         losses.append( loss )
         n += 1
         print( n, loss, labels.qsize() )
