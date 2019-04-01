@@ -14,20 +14,17 @@ import multiprocessing
 import h5py
 import json
 import numpy as np
+
+import numpy as np
 import tensorflow as tf
 import keras as K
 import keras.backend.tensorflow_backend as KTF
 from keras.models import Model
 from keras.callbacks import ModelCheckpoint
 from keras.layers import Input, Embedding, LSTM, Dense, Lambda
-
-
-# In[ ]:
-
-
-# K.backend.clear_session()
-# sess = tf.Session( config = tf.ConfigProto( device_count = {'gpu':0} ) )
-# KTF.set_session( sess )
+K.backend.clear_session()
+sess = tf.Session( config = tf.ConfigProto( device_count = {'gpu':0} ) )
+KTF.set_session( sess )
 
 
 # In[ ]:
@@ -337,8 +334,6 @@ def convert_to_batch( data, batch_size = 64, min_length = 3, max_length = 32 ):
     for lan in lan_list:
         if lan not in tdata:
             tdata[lan] = []
-    print( type( data[lan_list[0]][0][0] ),
-           isinstance( data[lan_list[0]][0][0], str ) )
     for i in range( 0, len( data[lan_list[0]] ) + batch_size, batch_size ):
         lan = {}
         max_len = {}
@@ -444,7 +439,8 @@ def simple_seq2seq( input_vocab_size, output_vocab_size,
 
 
 def translate_sentences( data, encoder_model, decoder_model, max_len,
-                         word_to_idx_dict, idx_to_word_dict, language_list ):
+                         word_to_idx_dict, idx_to_word_dict, language_list,
+                         path = "" ):
     """Generate sentences based on given sentences
 
     Args:
@@ -469,6 +465,7 @@ def translate_sentences( data, encoder_model, decoder_model, max_len,
     Returns:
         sentences: a list of generated (translated) sentences.
     """
+    f = open( "translated_sentence.txt", "w" )
     sentences = []
     lan_list = language_list
     for sentence in data:
@@ -485,8 +482,21 @@ def translate_sentences( data, encoder_model, decoder_model, max_len,
             words.append( init )
             cnt += 1
         print( words[:-1] )
-        sentences.append( words[:-1] )
-    return sentences
+        f.write( ' '.join( words[:-1] ) + "\n" )
+    f.close()
+#         sentences.append( words[:-1] )
+#     return sentences
+
+
+# In[ ]:
+
+
+def one_hot_to_categorical( epoch, no_of_batch, category, no_of_category,
+                            data, language, output_vocab_size, label_queue ):
+    for ep in range( epoch ):
+        for i in range( category, no_of_batch, no_of_category ):
+            label = K.utils.to_categorical( data[language][i], output_vocab_size )
+            label_queue.put( [i, label] )
 
 
 # In[ ]:
@@ -495,11 +505,11 @@ def translate_sentences( data, encoder_model, decoder_model, max_len,
 if __name__ == "__main__":
     model_name = "baseline"
     language_list = ["chinese", "english"] # [ori_lan, tar_lan]
-    batch_size = 64
+    batch_size = 32
     max_length = 32
 
-    data = get_data( "../data/test/", language_list, shuffle = False )
-    word_to_idx_dict, idx_to_word_dict = build_dictionary( data, 15 )
+    data = get_data( "../data/train/", language_list, shuffle = False )
+    word_to_idx_dict, idx_to_word_dict = build_dictionary( data, 20 )
     if EMB:
         word_to_vec = load_word2vec( "../data/word2vec/", language_list )
     else:
@@ -509,6 +519,28 @@ if __name__ == "__main__":
     save_dict( idx_to_word_dict, "idx_to_word.json" )
     input_vocab_size = len( word_to_idx_dict[language_list[0]] )
     output_vocab_size = len( word_to_idx_dict[language_list[1]] )
+    sort_by_ori_lan( data )
+    for lan in language_list:
+        print( len( data[lan] ) )
+    convert_to_index( data, word_to_idx_dict )
+    convert_to_batch( data, batch_size = batch_size, max_length = max_length )
+    for lan in language_list:
+        print( len( data[lan] ) )
+
+    epoch = 3
+    no_of_batch = len( data[language_list[0]] )
+    manager = multiprocessing.Manager()
+    labels = manager.Queue( 20 )
+    p = []
+    no_of_generator = 2
+    for i in range( no_of_generator ):
+        p_i = multiprocessing.Process( target = one_hot_to_categorical,
+                                       args = ( epoch, no_of_batch, i, no_of_generator,
+                                                data, language_list[1],
+                                                output_vocab_size,
+                                                labels ) )
+        p.append( p_i )
+        p_i.start()
 
     print( "Building Model" )
     encoder_embedding = pretrained_embedding_layer(
@@ -519,31 +551,26 @@ if __name__ == "__main__":
                                                           encoder_embedding, decoder_embedding,
                                                           name = model_name )
 
-    sort_by_ori_lan( data )
-    tdata = copy.deepcopy( data )
-    for lan in language_list:
-        print( len( data[lan] ), len( tdata[lan] ) )
-    convert_to_index( tdata, word_to_idx_dict )
-    convert_to_batch( data )
-    convert_to_batch( tdata )
-    for lan in language_list:
-        print( len( data[lan] ) )
-
     print( "Training Model" )
-    n = 0
     losses = []
-    for epoch in range( 0 ):
-        for i in range( len( data[language_list[0]] ) ):
-            label = K.utils.to_categorical( tdata[language_list[1]][i],
-                                            output_vocab_size )
-            loss = model.train_on_batch( [data[language_list[0]][i],
-                                          data[language_list[1]][i]],
-                                         label )
-            losses.append( loss )
-            print( n, loss )
-            n += 1
-            if n % 5000 == 0:
-                model.save_weights( "models/model_weights_" + str( n ) + ".h5" )
+    n = 0
+    while n < epoch * no_of_batch:
+        tmp = labels.get_nowait()
+        idx, label = tmp
+        loss = model.train_on_batch( [data[language_list[0]][idx],
+                                      data[language_list[1]][idx]],
+                                     label )
+        losses.append( loss )
+        n += 1
+        print( n, loss, labels.qsize() )
+        if n % 5000 == 0:
+            model.save_weights( "models/model_weights_" + str( n ) + ".h5" )
+    labels.task_done()
+
+    for p_i in p:
+        p_i.join()
+    losses = list( losses )
+
     with open( "losses.txt", "w" ) as f:
         for loss in losses:
             f.write( str( loss ) + "\n" )
@@ -557,7 +584,4 @@ if __name__ == "__main__":
                                                 max_length,
                                                 word_to_idx_dict, idx_to_word_dict,
                                                 language_list )
-    with open( "translated_sentence.txt", "w" ) as f:
-        for sentence in translated_sentences:
-            f.write( sentence + "\n" )
 
