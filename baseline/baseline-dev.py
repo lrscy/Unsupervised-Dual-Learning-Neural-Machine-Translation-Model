@@ -18,7 +18,8 @@ import keras as K
 import keras.backend.tensorflow_backend as KTF
 from keras.models import Model
 from keras.callbacks import ModelCheckpoint
-from keras.layers import Input, Embedding, LSTM, Dense, Lambda
+from keras.layers import Input, Embedding, LSTM, Dense, \
+                            Lambda, Concatenate, Bidirectional
 K.backend.clear_session()
 sess = tf.Session( config = tf.ConfigProto( device_count = {'gpu':0} ) )
 KTF.set_session( sess )
@@ -34,8 +35,8 @@ MUTI_GPU = 1
 def load_vectors( path, word2vec, language ):
     files = os.listdir( path + language + "/" )
     data = {}
-    for file in files:
-        fin = io.open( path + file, "r", encoding = "utf-8",
+    for file_name in files:
+        fin = io.open( path + language + "/" + file_name, "r", encoding = "utf-8",
                        newline = "\n", errors = "ignore" )
         n, d = map( int, fin.readline().split() )
         for line in fin:
@@ -446,17 +447,20 @@ def simple_seq2seq( input_vocab_size, output_vocab_size,
     ### Encoder-Decoder for train ###
     
     # Encoder
-    encoder = LSTM( hidden_dim, return_state = True,
-                    name = name + "_encoder_lstm" )
+    encoder = Bidirectional( LSTM( hidden_dim, return_state = True,
+                                   name = name + "_encoder_lstm" ) )
     encoder_input = Input( shape = ( None, ),
                            name = name + "_encoder_input" )
     
     encoder_input_emb   = encoder_embedding( encoder_input )
-    _, state_h, state_c = encoder( encoder_input_emb )
-    encoder_state       = [state_h, state_c]
+    _, forward_state_h, forward_state_c, \
+        backward_state_h, backward_state_c = encoder( encoder_input_emb )
+    state_h = Concatenate()( [forward_state_h, backward_state_h] )
+    state_c = Concatenate()( [forward_state_c, backward_state_c] )
+    encoder_state = [state_h, state_c]
     
     # Decoder
-    decoder = LSTM( hidden_dim, return_state = True, return_sequences = True,
+    decoder = LSTM( hidden_dim * 2, return_state = True, return_sequences = True,
                     name = name + "_decoder_lstm" )
     decoder_dense = Dense( output_vocab_size, activation = "softmax",
                            name = name + "_decoder_output" )
@@ -486,8 +490,8 @@ def simple_seq2seq( input_vocab_size, output_vocab_size,
         encoder_model = multi_gpu_model( encoder_model, gpus = MUTI_GPU )
     
     # Decoder Model
-    decoder_state_h = Input( shape = ( hidden_dim, ), name = name + "_state_h" )
-    decoder_state_c = Input( shape = ( hidden_dim, ), name = name + "_state_c" )
+    decoder_state_h = Input( shape = ( hidden_dim * 2, ), name = name + "_state_h" )
+    decoder_state_c = Input( shape = ( hidden_dim * 2, ), name = name + "_state_c" )
     decoder_state_input = [decoder_state_h, decoder_state_c]
     decoder_output, state_h, state_c = decoder( decoder_input_emb,
                                                 initial_state = decoder_state_input )
@@ -573,8 +577,6 @@ if __name__ == "__main__":
     input_vocab_size = len( word_to_idx_dict[language_list[0]] )
     output_vocab_size = len( word_to_idx_dict[language_list[1]] )
     sort_by_ori_lan( data )
-    for lan in language_list:
-        print( len( data[lan] ) )
     convert_to_index( data, word_to_idx_dict )
     convert_to_batch( data, language_list, batch_size = batch_size, max_length = max_length )
     data = convert_to_pair( data, language_list )
