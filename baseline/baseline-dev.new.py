@@ -10,6 +10,7 @@ import math
 import multiprocessing
 import h5py
 import json
+import time
 import numpy as np
 
 import numpy as np
@@ -26,7 +27,7 @@ from keras.layers import Input, Embedding, LSTM, Dense, \
 
 # Global debug parameter
 # Open embedding layer or not
-EMB = False
+EMB = True
 # Open UNK or not
 UNK = False
 # Train on multi GPU(1, 2, 3, ...)
@@ -38,7 +39,7 @@ def load_vectors( path, word2vec, language ):
     for file_name in files:
         fin = io.open( path + language + "/" + file_name, "r", encoding = "utf-8",
                        newline = "\n", errors = "ignore" )
-        n, d = map( int, fin.readline().split() )
+#        n, d = map( int, fin.readline().split() )
         for line in fin:
             tokens = line.rstrip().split( ' ' )
             data[tokens[0]] = map( float, tokens[1:] )
@@ -82,7 +83,7 @@ def get_language_data( path, language, encoding, lan_data = {} ):
                 if 0 == len( line ):
                     line = f.readline()
                     continue
-                words = ["<S>"] + line.split() + ["</S>"]
+                words = ["<START>"] + line.split() + ["<END>"]
                 sentences.append( words )
                 line = f.readline()
     lan_data[language] = sentences
@@ -184,31 +185,37 @@ def build_language_dictionary( language, sentences,
         threshold: a integer represents threshold. If the number of a word
                    is less than threshold, it will be replaced by <UNK>.
     """
-    # Generate dictionary for each language
-    word_to_idx_dict_lan = {"<PAD>": 0, "<S>": 1, "</S>": 2}
-    idx_to_word_dict_lan = {0: "<PAD>", 1: "<S>", 2: "</S>"}
-    if UNK:
-        word_to_idx_dict_lan["<UNK>"] = 3
-        idx_to_word_dict_lan[3] = "<UNK>"
-
-    # Count words
-    word_count = {}
-    for sentence in sentences:
-        for word in sentence:
-            if word not in word_count:
-                word_count[word] = 0
-            word_count[word] += 1
-
-    # Replace words to <UNK>
-    for word, count in word_count.items():
-        if count <= threshold:
-            if not UNK:
-                continue
-            word = "<UNK>"
-        if word not in word_to_idx_dict_lan:
-            idx = len( word_to_idx_dict_lan )
-            word_to_idx_dict_lan[word] = idx
-            idx_to_word_dict_lan[idx] = word
+#    # Generate dictionary for each language
+#    word_to_idx_dict_lan = {"<PAD>": 0, "<S>": 1, "</S>": 2}
+#    idx_to_word_dict_lan = {0: "<PAD>", 1: "<S>", 2: "</S>"}
+#    if UNK:
+#        word_to_idx_dict_lan["<UNK>"] = 3
+#        idx_to_word_dict_lan[3] = "<UNK>"
+#
+#    # Count words
+#    word_count = {}
+#    for sentence in sentences:
+#        for word in sentence:
+#            if word not in word_count:
+#                word_count[word] = 0
+#            word_count[word] += 1
+#
+#    # Replace words to <UNK>
+#    for word, count in word_count.items():
+#        if count <= threshold:
+#            if not UNK:
+#                continue
+#            word = "<UNK>"
+#        if word not in word_to_idx_dict_lan:
+#            idx = len( word_to_idx_dict_lan )
+#            word_to_idx_dict_lan[word] = idx
+#            idx_to_word_dict_lan[idx] = word
+    word_to_idx_dict_lan = {}
+    idx_to_word_dict_lan = {}
+    with open( "dicts/" + language + ".vab", encoding = "utf-8" ) as fp:
+        idx_to_word_dict_lan = json.load( fp )
+    for each in idx_to_word_dict_lan:
+        word_to_idx_dict_lan.setdefault( idx_to_word_dict_lan[each], each )
     
     word_to_idx_dict[language] = word_to_idx_dict_lan
     idx_to_word_dict[language] = idx_to_word_dict_lan
@@ -310,8 +317,8 @@ def convert_to_index( data, word_to_idx_dict ):
                 if word not in word_to_idx_dict[language]:
                     if not UNK:
                         continue
-                    word = "UNK"
-                new_sentence.append( word_to_idx_dict[language][word] );
+                    word = "<UNK>"
+                new_sentence.append( int( word_to_idx_dict[language][word] ) );
             data[language][i] = new_sentence
 
 def convert_to_batch( data, language_list, batch_size = 64, min_length = 5, max_length = 32 ):
@@ -368,15 +375,15 @@ def convert_to_batch( data, language_list, batch_size = 64, min_length = 5, max_
                         if k:
                             np_lan[language][n, k - 1] = lan[language][j][k]
                     else:
-                        if k < length - 1:
-                            np_lan[language][n, k] = lan[language][j][k]
+                        np_lan[language][n, k] = lan[language][j][k]
             n += 1
         for language in lan_list:
             tdata[language].append( np_lan[language] )
     for language in lan_list:
         data[language] = tdata[language]
 
-def pretrained_embedding_layer( word_to_vec_map, word_to_index ):
+#def pretrained_embedding_layer( word_to_vec_map, word_to_index ):
+def pretrained_embedding_layer( language ):
     """Creates a Keras Embedding() layer and loads in pre-trained word2vec 300-dimensional vectors.
 
     Args:
@@ -386,31 +393,38 @@ def pretrained_embedding_layer( word_to_vec_map, word_to_index ):
     Returns:
         embedding_layer: pretrained layer Keras instance
     """
-    vocab_len = len(word_to_index) + 1 # adding 1 to fit Keras embedding (requirement)
-    emb_dim = word_to_vec_map["cucumber"].shape[0]
-    
-    # Initialize the embedding matrix as a numpy array of zeros of shape
-    # (vocab_len, dimensions of word vectors = emb_dim)
-    emb_matrix = np.zeros( ( vocab_len, emb_dim ) )
-    
-    # Set each row "index" of the embedding matrix to be the word vector
-    # representation of the "index"th word of the vocabulary
-    for word, index in word_to_index.items():
-        if word not in word_to_index:
-            emb_matrix[index, :] = np.random.random( ( 1, emb_dim ) )
-        else:
-            emb_matrix[index, :] = word_to_vec_map[word]
+#    vocab_len = len(word_to_index) + 1 # adding 1 to fit Keras embedding (requirement)
+#    emb_dim = 300
+##    emb_dim = word_to_vec_map["cucumber"].shape[0]
+#    
+#    # Initialize the embedding matrix as a numpy array of zeros of shape
+#    # (vocab_len, dimensions of word vectors = emb_dim)
+#    emb_matrix = np.zeros( ( vocab_len, emb_dim ) )
+#    
+#    # Set each row "index" of the embedding matrix to be the word vector
+#    # representation of the "index"th word of the vocabulary
+#    for word, index in word_to_index.items():
+#        if word not in word_to_index:
+#            emb_matrix[index, :] = np.random.random( ( 1, emb_dim ) )
+#        else:
+#            emb_matrix[index, :] = word_to_vec_map[word]
+
+    emb_matrix = np.load( "../data/w2v/" + language + "/" + language )
+    vocab_len = emb_matrix.shape[0]
+    emb_dim   = emb_matrix.shape[1]
+#    emb_matrix = np.append( emb_matrix, np.zeros( ( 1, emb_dim ) ), axis = 0 )
+    print( "embedding: ", language, emb_matrix.shape )
 
     # Define Keras embedding layer with the correct output/input sizes, make it trainable.
     # Use Embedding(...). Make sure to set trainable=False. 
-    embedding_layer = Embedding( vocab_len, emb_dim, trainable = False, mask_zero = True )
+    embedding_layer = Embedding( vocab_len, emb_dim, trainable = False )
 
     # Build the embedding layer, it is required before setting the weights of the embedding layer.
     # Do not modify the "None".
-    embedding_layer.build( ( None, ) )
+#    embedding_layer.build( ( None, ) )
     
     # Set the weights of the embedding layer to the embedding matrix. Your layer is now pretrained.
-    embedding_layer.set_weights( [emb_matrix] )
+#    embedding_layer.set_weights( [emb_matrix] )
     
     return embedding_layer
 
@@ -424,12 +438,13 @@ def simple_seq2seq( vocab_size_list,
     encoder = Bidirectional( LSTM( hidden_dim, return_state = True,
                                    kernel_initializer = "glorot_normal",
                                    name = name + "_encoder_lstm" ) )
-    encoder_input = Input( shape = ( None, vocab_size_list[0] ),
-                           name = name + "_encoder_input" )
-    
     if EMB:
+        encoder_input = Input( shape = ( None, ),
+                               name = name + "_encoder_input" )
         encoder_input_emb = encoder_embedding( encoder_input )
     else:
+        encoder_input = Input( shape = ( None, vocab_size_list[0] ),
+                               name = name + "_encoder_input" )
         encoder_input_emb = encoder_input
     _, forward_state_h, forward_state_c, \
         backward_state_h, backward_state_c = encoder( encoder_input_emb )
@@ -444,12 +459,14 @@ def simple_seq2seq( vocab_size_list,
     decoder_dense = Dense( vocab_size_list[1], activation = "softmax",
                            kernel_initializer = "glorot_normal",
                            name = name + "_decoder_output" )
-    decoder_input = Input( shape = ( None, vocab_size_list[1] ),
-                           name = name + "_decoder_input" )
     
     if EMB:
+        decoder_input = Input( shape = ( None, ),
+                               name = name + "_decoder_input" )
         decoder_input_emb = decoder_embedding( decoder_input )
     else:
+        decoder_input = Input( shape = ( None, vocab_size_list[1] ),
+                               name = name + "_decoder_input" )
         decoder_input_emb = decoder_input
     decoder_output, state_h, state_c = decoder( decoder_input_emb,
                                                 initial_state = encoder_state )
@@ -521,17 +538,19 @@ def translate_sentences( data, encoder_model, decoder_model, max_len,
     input_vocab_size  = len( word_to_idx_dict[lan_list[0]] )
     output_vocab_size = len( word_to_idx_dict[lan_list[1]] )
     for sentence in data:
-        init = "<S>"
+        init = "<START>"
         cnt = 0
         words = []
-        sentence = K.utils.to_categorical( sentence, input_vocab_size )
+        if not EMB:
+            sentence = K.utils.to_categorical( sentence, input_vocab_size )
         state = encoder_model.predict( sentence )
-        while init != "</S>" and cnt <= max_len + 1:
+        while init != "<END>" and cnt <= max_len + 1:
             index = np.array( [word_to_idx_dict[lan_list[1]][init]] ).reshape( ( 1, 1 ) )
-            index = [K.utils.to_categorical( index, output_vocab_size )]
+            if not EMB:
+                index = [K.utils.to_categorical( index, output_vocab_size )]
             indeces, state_h, state_c = decoder_model.predict( [index] + state )
             index = np.argmax( indeces[0, -1, :] )
-            init = idx_to_word_dict[lan_list[1]][index]
+            init = idx_to_word_dict[lan_list[1]][str( index )]
             state = [state_h, state_c]
             words.append( init )
             cnt += 1
@@ -544,8 +563,12 @@ def one_hot_to_categorical( epoch, no_of_batch, category, no_of_category,
     for ep in range( epoch ):
         for i in range( category, no_of_batch, no_of_category ):
             train_data = []
-            train_data.append( K.utils.to_categorical( data[language_list[0]][i], vocab_size_list[0] ) )
-            train_data.append( K.utils.to_categorical( data[language_list[1]][i], vocab_size_list[1] ) )
+            if EMB:
+                train_data.append( data[language_list[0]][i] )
+                train_data.append( data[language_list[1]][i] )
+            else:
+                train_data.append( K.utils.to_categorical( data[language_list[0]][i], vocab_size_list[0] ) )
+                train_data.append( K.utils.to_categorical( data[language_list[1]][i], vocab_size_list[1] ) )
             label = K.utils.to_categorical( data[language_list[2]][i], vocab_size_list[1] )
             queue.put( [train_data, label] )
 
@@ -558,7 +581,7 @@ if __name__ == "__main__":
     data = get_data( "../data/other/", language_list, shuffle = False )
     word_to_idx_dict, idx_to_word_dict = build_dictionary( data, 5 )
     if EMB:
-        word_to_vec = load_word2vec( "../data/word2vec/", language_list )
+        word_to_vec = load_word2vec( "../data/wv/", language_list )
     else:
         word_to_vec = word_to_idx_dict
     print( len( word_to_idx_dict[language_list[0]] ), len( word_to_idx_dict[language_list[1]] ) )
@@ -573,55 +596,57 @@ if __name__ == "__main__":
     print( language_list )
     print( len( data[language_list[0]] ) )
 
-    epoch = 10
-    no_of_batch = len( data[language_list[0]] )
-    manager = multiprocessing.Manager()
-    queue = manager.Queue( 10 )
-    p = []
-    no_of_generator = 2
-    for i in range( no_of_generator ):
-        p_i = multiprocessing.Process( target = one_hot_to_categorical,
-                                       args = ( epoch, no_of_batch, i, no_of_generator,
-                                                data, language_list,
-                                                vocab_size_list,
-                                                queue ) )
-        p.append( p_i )
-        p_i.start()
-
     print( "Building Model" )
     if EMB:
-        encoder_embedding = pretrained_embedding_layer(
-                                word_to_vec[language_list[0]], word_to_idx_dict[language_list[0]] )
-        decoder_embedding = pretrained_embedding_layer(
-                                word_to_vec[language_list[1]], word_to_idx_dict[language_list[1]] )
+        encoder_embedding = pretrained_embedding_layer( language_list[0] )
+        decoder_embedding = pretrained_embedding_layer( language_list[1] )
     else:
         encoder_embedding = decoder_embedding = None
     model, encoder_model, decoder_model = simple_seq2seq( vocab_size_list,
-                                                          encoder_embedding, decoder_embedding,
-                                                          name = model_name )
-
-    print( "Training Model" )
-    losses = []
-    n = 0
-    while n < epoch * no_of_batch:
-        train_data, label = queue.get_nowait()
-#    for _ in range( epoch ):
-#        for idx in range( no_of_batch ):
-#           label = K.utils.to_categorical( data[idx][1], vocab_size_list[1] )
-        loss = model.train_on_batch( train_data, label )
-        losses.append( loss )
-        n += 1
-        print( n, loss )
-        if n % 5000 == 0:
-            model.save_weights( "models/model_weights_" + str( n ) + ".h5" )
-
-    for p_i in p:
-        p_i.join()
-    losses = list( losses )
-
-    with open( "losses.txt", "w" ) as f:
-        for loss in losses:
-            f.write( str( loss ) + "\n" )
+                                                              encoder_embedding, decoder_embedding,
+                                                              name = model_name )
+    epoch = 350
+    if epoch:
+        no_of_batch = len( data[language_list[0]] )
+        manager = multiprocessing.Manager()
+        queue = manager.Queue( 10 )
+        p = []
+        no_of_generator = 5
+        for i in range( no_of_generator ):
+            p_i = multiprocessing.Process( target = one_hot_to_categorical,
+                                           args = ( epoch, no_of_batch, i, no_of_generator,
+                                                    data, language_list,
+                                                    vocab_size_list,
+                                                    queue ) )
+            p.append( p_i )
+            p_i.start()
+   
+        time.sleep( 5 )
+        print( "Training Model" )
+        losses = []
+        n = 0
+        while n < epoch * no_of_batch:
+            train_data, label = queue.get_nowait()
+    #    for _ in range( epoch ):
+    #        for idx in range( no_of_batch ):
+    #           label = K.utils.to_categorical( data[idx][1], vocab_size_list[1] )
+            loss = model.train_on_batch( train_data, label )
+            losses.append( loss )
+            n += 1
+            print( n, loss, queue.qsize() )
+            if n % 5000 == 0:
+                model.save_weights( "models/model_weights_" + str( n ) + ".h5" )
+    
+        for p_i in p:
+            p_i.join()
+        losses = list( losses )
+    
+        with open( "losses.txt", "w" ) as f:
+            for loss in losses:
+                f.write( str( loss ) + "\n" )
+    else:
+        latest = 35000
+        model.load_weights( "models/model_weights_" + latest + ".h5" )
 
     language_list = ["chinese", "english"] # [ori_lan, tar_lan]
     data = get_data( "../data/other/", language_list, shuffle = False )
