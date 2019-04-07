@@ -29,8 +29,8 @@ from keras.layers import Input, Embedding, LSTM, Dense, \
 EMB = True          # Open embedding layer or not
 UNK = False         # Open UNK or not
 MUTI_GPU = 1        # Train on multi GPU(1, 2, 3, ...)
-CONTINUE = True     # Continuely train
-TRAIN = False       # Train or not
+CONTINUE = False    # Continuely train
+TRAIN = True        # Train or not
 GENERATION = True   # Generate or not
 WORD2VEC = "self"   # self or bert
 
@@ -656,6 +656,9 @@ if __name__ == "__main__":
         data = load_data( train_data_path, language_list, shuffle = False )
         if CONTINUE:
             word_to_idx_dict, idx_to_word_dict = load_dictionary( language_list )
+            # truncate all content in losses.txt
+            f = open( loss_path + "losses.txt", "w" )
+            f.close()
         else:
             word_to_idx_dict, idx_to_word_dict = load_dictionary( language_list )
 #            word_to_idx_dict, idx_to_word_dict = build_dictionary( data, 0 )
