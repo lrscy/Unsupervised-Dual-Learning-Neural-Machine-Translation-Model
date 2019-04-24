@@ -19,8 +19,8 @@ import keras as K
 import keras.backend.tensorflow_backend as KTF
 from keras.models import Model
 from keras.callbacks import ModelCheckpoint
-from keras.layers import Input, Embedding, LSTM, Dense, \
-                            Lambda, Concatenate, Bidirectional
+from keras.layers import *
+
 #K.backend.clear_session()
 #sess = tf.Session( config = tf.ConfigProto( device_count = {'gpu':0} ) )
 #KTF.set_session( sess )
@@ -31,14 +31,14 @@ UNK = False         # Open UNK or not
 MUTI_GPU = 1        # Train on multi GPU(1, 2, 3, ...)
 CONTINUE = False    # Continuely train
 TRAIN = True        # Train or not
-GENERATION = True   # Generate or not
+GENERATION = False  # Generate or not
 WORD2VEC = "self"   # self or bert
 
 model_name = "baseline"
 batch_size = 128
 min_length = 5
 max_length = 30
-epoch      = 5
+epoch      = 3000
 loss_path  = "loss/"
 dict_path  = "dicts/"
 model_path = "models/"
@@ -503,6 +503,7 @@ def simple_seq2seq( vocab_size_list, language_list,
 
     # Encoder
     encoder = Bidirectional( LSTM( hidden_dim, return_state = True,
+                                   return_sequences = True,
                                    kernel_initializer = "glorot_normal",
                                    name = name + "_encoder_lstm" ) )
     if EMB:
@@ -513,7 +514,7 @@ def simple_seq2seq( vocab_size_list, language_list,
         encoder_input = Input( shape = ( None, vocab_size_list[0] ),
                                name = name + "_encoder_input" )
         encoder_input_emb = encoder_input
-    _, forward_state_h, forward_state_c, \
+    encoder_output, forward_state_h, forward_state_c, \
         backward_state_h, backward_state_c = encoder( encoder_input_emb )
     state_h = Concatenate()( [forward_state_h, backward_state_h] )
     state_c = Concatenate()( [forward_state_c, backward_state_c] )
@@ -523,9 +524,14 @@ def simple_seq2seq( vocab_size_list, language_list,
     decoder = LSTM( hidden_dim * 2, return_state = True, return_sequences = True,
                     kernel_initializer = "glorot_normal",
                     name = name + "_decoder_lstm" )
-    decoder_dense = Dense( vocab_size_list[1], activation = "softmax",
-                           kernel_initializer = "glorot_normal",
-                           name = name + "_decoder_output" )
+    decoder_dense_pre = TimeDistributed( Dense( hidden_dim * 2,
+                                                kernel_initializer = "glorot_normal",
+                                                activation = 'tanh',
+                                                name = name + "_decoder_output_pre" ) )
+    decoder_dense     = TimeDistributed( Dense( vocab_size_list[1],
+                                                activation = "softmax",
+                                                kernel_initializer = "glorot_normal",
+                                                name = name + "_decoder_output" ) )
     
     if EMB:
         decoder_input = Input( shape = ( None, ),
@@ -537,7 +543,15 @@ def simple_seq2seq( vocab_size_list, language_list,
         decoder_input_emb = decoder_input
     decoder_output, state_h, state_c = decoder( decoder_input_emb,
                                                 initial_state = encoder_state )
-    decoder_output    = decoder_dense( decoder_output )
+
+    # Attention mechanism
+    attention = Dot( axes = [2, 2] )( [decoder_output, encoder_output] )
+    attention = Softmax()( attention )
+    context   = Dot( axes = [2, 1] )( [attention, encoder_output] )
+    decoder_with_context = Concatenate( axis = -1 )( [context, decoder_output] )
+    decoder_output = decoder_dense_pre( decoder_with_context )
+
+    decoder_output = decoder_dense( decoder_output )
     
     # Model
     model = Model( inputs = [encoder_input, decoder_input],
@@ -545,7 +559,7 @@ def simple_seq2seq( vocab_size_list, language_list,
                    name = name )
     if MUTI_GPU > 1:
         model = multi_gpu_model( model, gpus = MUTI_GPU )
-    model.compile( optimizer = 'adam', loss = "categorical_crossentropy" )
+    model.compile( optimizer = 'rmsprop', loss = "categorical_crossentropy" )
     
     ### Encoder-Decoder for generation ###
     

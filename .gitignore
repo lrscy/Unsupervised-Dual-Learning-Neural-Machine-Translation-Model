@@ -1,10 +1,13 @@
 *.swp
 *.pem
-lm/
+*.csv
+*.DS_Store
 .ipynb_checkpoints/
 data/
-models/
 dicts/
-**/losses
-**/err
+models/
+losses/
+lm/
 **/_vimrc
+**/err
+**/losses
